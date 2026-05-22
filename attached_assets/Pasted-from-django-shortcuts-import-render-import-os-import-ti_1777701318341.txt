@@ -1,0 +1,201 @@
+from django.shortcuts import render
+
+import os
+import time
+import hmac
+import hashlib
+import secrets
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.io as pio
+from django.shortcuts import render, redirect
+from django.conf import settings
+from django.contrib import messages
+from django.core.validators import validate_ipv4_address
+from django.core.exceptions import ValidationError
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.clickjacking import xframe_options_deny
+from django.views.decorators.cache import never_cache
+
+# ============================================================
+# 1. КОНФИГУРАЦИЯ БЕЗОПАСНОСТИ
+# ============================================================
+admin_pass = os.environ.get('ADMIN_PASS', 'admin123')
+bot_pass = os.environ.get('BOT_PASS', 'bot123')
+guest_pass = os.environ.get('GUEST_PASS', 'guest123')
+
+def hash_password(password: str, salt: str = None) -> tuple:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    password_hash = hmac.new(salt.encode(), password.encode(), hashlib.sha256).hexdigest()
+    return password_hash, salt
+
+def verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    computed_hash, _ = hash_password(password, salt)
+    return hmac.compare_digest(computed_hash, stored_hash)
+
+_user_hashes = {
+    "admin": hash_password(admin_pass),
+    "support_bot": hash_password(bot_pass),
+    "guest": hash_password(guest_pass)
+}
+
+users_db = {
+    "admin": {
+        "password_hash": _user_hashes["admin"][0], "password_salt": _user_hashes["admin"][1],
+        "role": "admin", "allowed_ips": ["10.0.0.1", "10.0.0.2", "127.0.0.1"],
+        "work_hours": list(range(8, 20)), "work_days": [0, 1, 2, 3, 4, 5]
+    },
+    "support_bot": {
+        "password_hash": _user_hashes["support_bot"][0], "password_salt": _user_hashes["support_bot"][1],
+        "role": "robot", "allowed_ips": ["172.16.1.100", "127.0.0.1"],
+        "work_hours": list(range(24)), "work_days": [0, 1, 2, 3, 4, 5, 6]
+    },
+    "guest": {
+        "password_hash": _user_hashes["guest"][0], "password_salt": _user_hashes["guest"][1],
+        "role": "viewer", "allowed_ips": ["192.168.1.50", "192.168.1.51", "127.0.0.1"],
+        "work_hours": [10, 11, 12, 13, 14, 15, 16, 17], "work_days": [1, 2, 3, 4, 5]
+    }
+}
+
+# ============================================================
+# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================================
+def get_current_hour(): return int(time.strftime('%H', time.localtime()))
+def get_current_weekday(): return int(time.strftime('%w', time.localtime()))
+
+def validate_ip(ip: str) -> bool:
+    try:
+        validate_ipv4_address(ip)
+        return True
+    except ValidationError:
+        return False
+
+def check_ip_allowed(allowed_ips, client_ip):
+    if client_ip == '127.0.0.1': return True
+    if not validate_ip(client_ip): return False
+    return client_ip in allowed_ips
+
+def check_time_allowed(work_hours, work_days, current_hour, current_day):
+    return (current_hour in work_hours) and (current_day in work_days)
+
+@csrf_protect
+@never_cache
+def authenticate_user(username: str, password: str, client_ip: str) -> dict:
+    if username not in users_db: return {"success": False, "reason": "invalid_user"}
+    user = users_db[username]
+    if not verify_password(password, user["password_hash"], user["password_salt"]):
+        return {"success": False, "reason": "wrong_password"}
+    if not check_ip_allowed(user["allowed_ips"], client_ip):
+        return {"success": False, "reason": "ip_not_allowed"}
+    hour, day = get_current_hour(), get_current_weekday()
+    if not check_time_allowed(user["work_hours"], user["work_days"], hour, day):
+        return {"success": False, "reason": "time_not_allowed"}
+    return {"success": True, "role": user["role"], "hour": hour, "day": day, "username": username}
+
+# ============================================================
+# 3. СТАТИСТИКА И ВИЗУАЛИЗАЦИЯ
+# ============================================================
+def calculate_role_stats():
+    roles = [users_db[u]["role"] for u in users_db]
+    role_counts = {}
+    for r in roles: role_counts[r] = role_counts.get(r, 0) + 1
+    return pd.DataFrame(list(role_counts.items()), columns=["Роль", "Количество"])
+
+def calculate_ip_stats():
+    data = []
+    for name, info in users_db.items():
+        data.append({"Пользователь": name, "Роль": info["role"], "Количество разрешённых IP": len(info["allowed_ips"]), "Разрешённые IP": ", ".join(info["allowed_ips"])})
+    return pd.DataFrame(data)
+
+def visualize_role_stats_static(df):
+    plt.figure(figsize=(6, 6))
+    colors = ["lightcoral", "lightblue", "lightgreen"][:len(df)]
+    plt.pie(df["Количество"], labels=df["Роль"], autopct="%1.1f%%", colors=colors, startangle=90)
+    plt.title("Распределение пользователей по ролям")
+    plt.tight_layout()
+    plt.savefig(os.path.join(settings.MEDIA_ROOT, 'img2.jpeg'))
+    plt.close()
+
+def visualize_ip_stats_static(df):
+    plt.figure(figsize=(7, 4))
+    bars = plt.bar(df["Пользователь"], df["Количество разрешённых IP"], color="skyblue", edgecolor="black")
+    plt.title("Количество разрешённых IP по пользователям")
+    for bar in bars:
+        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height() / 2, str(int(bar.get_height())), ha="center", va="center", color="white", fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(os.path.join(settings.MEDIA_ROOT, 'img1.jpeg'))
+    plt.close()
+
+def get_interactive_role_chart(df):
+    fig = px.pie(df, values='Количество', names='Роль', title='Распределение по ролям (Интерактив)')
+    return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
+
+def get_interactive_ip_chart(df):
+    fig = px.bar(df, x='Пользователь', y='Количество разрешённых IP', title='Разрешенные IP (Интерактив)', color='Роль')
+    return pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
+
+# ============================================================
+# 4. VIEW-ФУНКЦИИ
+# ============================================================
+@xframe_options_deny
+@never_cache
+def login_view(request):
+    context = {}
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        client_ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '127.0.0.1')).split(',')[0].strip()
+
+        result = authenticate_user(username, password, client_ip)
+        if result['success']:
+            if result['role'] == 'admin': return redirect('admin_dashboard')
+
+            df_roles, df_ips = calculate_role_stats(), calculate_ip_stats()
+            visualize_role_stats_static(df_roles)
+            visualize_ip_stats_static(df_ips)
+
+            context = {
+                'success': True, 'user_role': result['role'],
+                'role_table': df_roles.to_html(classes='table table-striped table-bordered', index=False),
+                'ip_table': df_ips.to_html(classes='table table-striped table-bordered', index=False),
+                'img_role_url': f'{settings.MEDIA_URL}img2.jpeg', 'img_ip_url': f'{settings.MEDIA_URL}img1.jpeg',
+                'role_chart_html': get_interactive_role_chart(df_roles), 'ip_chart_html': get_interactive_ip_chart(df_ips),
+                'login_time': time.strftime('%H:%M:%S'), 'client_ip': client_ip
+            }
+            return render(request, 'risk_app/dashboard.html', context)
+        else:
+            context['error'] = f"Доступ запрещён: {result['reason']}"
+    return render(request, 'risk_app/login.html', context)
+
+@xframe_options_deny
+@never_cache
+def admin_dashboard(request):
+    if request.method == 'POST':
+        user_to_edit = request.POST.get('edit_user')
+        new_ips = request.POST.get('new_ips')
+        new_hours_start = request.POST.get('new_hours_start')
+        new_hours_end = request.POST.get('new_hours_end')
+
+        if user_to_edit in users_db:
+            if new_ips:
+                users_db[user_to_edit]['allowed_ips'] = [ip.strip() for ip in new_ips.split(',') if validate_ip(ip.strip())]
+            try:
+                start, end = int(new_hours_start), int(new_hours_end)
+                if start < end: users_db[user_to_edit]['work_hours'] = list(range(start, end))
+                messages.success(request, f"Настройки для {user_to_edit} обновлены!")
+            except (ValueError, TypeError): pass
+
+    df_roles, df_ips = calculate_role_stats(), calculate_ip_stats()
+    visualize_role_stats_static(df_roles)
+    visualize_ip_stats_static(df_ips)
+
+    context = {
+        'users': users_db,
+        'role_table': df_roles.to_html(classes='table table-striped table-bordered', index=False),
+        'ip_table': df_ips.to_html(classes='table table-striped table-bordered', index=False),
+        'img_role_url': f'{settings.MEDIA_URL}img2.jpeg', 'img_ip_url': f'{settings.MEDIA_URL}img1.jpeg',
+        'role_chart_html': get_interactive_role_chart(df_roles), 'ip_chart_html': get_interactive_ip_chart(df_ips),
+    }
+    return render(request, 'risk_app/admin_dashboard.html', context)

@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - prometheus:9090
+
+  - job_name: auth_app
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - nginx:80
+        labels:
+          component: django
+          quality_model: iso-25010
+
+  - job_name: nginx
+    static_configs:
+      - targets:
+          - nginx_exporter:9113
+        labels:
+          component: reverse-proxy
+
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - postgres_exporter:9187
+        labels:
+          component: database
+
+  - job_name: containers
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          component: docker-runtime
