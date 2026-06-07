@@ -1,10 +1,14 @@
+# Блок описания контейнеров проекта.
 services:
+  # Блок reverse proxy: принимает внешний HTTP-трафик и скрывает приложение за nginx.
   nginx:
     image: nginx:alpine
     container_name: my_nginx
     ports:
+      # Внешний порт 80 публикуется для доступа пользователей к веб-приложению.
       - "80:80"
     volumes:
+      # Конфигурация nginx подключается только как файл настроек.
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - auth_app
@@ -12,10 +16,12 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок Django-приложения с логикой контроля доступа.
   auth_app:
     build: .
     container_name: my_auth_app
     env_file:
+      # .env используется для передачи секретов и паролей через окружение контейнера.
       - .env
     depends_on:
       - db
@@ -23,19 +29,23 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок базы данных PostgreSQL.
   db:
     image: postgres:15-alpine
     container_name: my_postgres
     environment:
+      # Переменные окружения создают базу, пользователя и пароль при первом запуске.
       POSTGRES_DB: auth_db
       POSTGRES_USER: auth_user
       POSTGRES_PASSWORD: auth_password
     volumes:
+      # Именованный том сохраняет данные БД между перезапусками контейнера.
       - postgres_data:/var/lib/postgresql/data
     networks:
       - auth_network
     restart: unless-stopped
 
+  # Блок веб-интерфейса для просмотра базы данных.
   adminer:
     image: adminer:latest
     container_name: my_adminer
@@ -47,10 +57,12 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок сбора метрик Prometheus.
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: my_prometheus
     command:
+      # Prometheus берет правила сбора из prometheus/prometheus.yml.
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.console.libraries=/usr/share/prometheus/console_libraries
@@ -58,6 +70,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
+      # Конфигурация подключается в режиме read-only, чтобы контейнер не менял файл проекта.
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     depends_on:
@@ -70,17 +83,20 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок визуализации метрик Grafana.
   grafana:
     image: grafana/grafana-oss:11.3.1
     container_name: my_grafana
     ports:
       - "3000:3000"
     environment:
+      # Учетная запись администратора Grafana задается для учебного стенда.
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
+      # Provisioning автоматически подключает источник данных и dashboard.
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
@@ -89,12 +105,14 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок мониторинга контейнеров.
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: my_cadvisor
     ports:
       - "8081:8080"
     volumes:
+      # Системные каталоги подключены для чтения статистики Docker и хоста.
       - /:/rootfs:ro
       - /var/run:/var/run:rw
       - /sys:/sys:ro
@@ -103,10 +121,12 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок экспорта метрик PostgreSQL в Prometheus.
   postgres_exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: my_postgres_exporter
     environment:
+      # Строка подключения указывает exporter, какую базу опрашивать.
       DATA_SOURCE_NAME: postgresql://auth_user:auth_password@db:5432/auth_db?sslmode=disable
     depends_on:
       - db
@@ -114,10 +134,12 @@ services:
       - auth_network
     restart: unless-stopped
 
+  # Блок экспорта метрик nginx в Prometheus.
   nginx_exporter:
     image: nginx/nginx-prometheus-exporter:1.3.0
     container_name: my_nginx_exporter
     command:
+      # Exporter считывает статистику со служебного endpoint /stub_status.
       - -nginx.scrape-uri=http://nginx:80/stub_status
     depends_on:
       - nginx
@@ -125,11 +147,15 @@ services:
       - auth_network
     restart: unless-stopped
 
+# Блок изолированной Docker-сети.
 networks:
   auth_network:
+    # Bridge-сеть позволяет контейнерам общаться по именам сервисов и изолирует их от других проектов.
     driver: bridge
 
+# Блок постоянных томов.
 volumes:
+  # postgres_data хранит данные БД, prometheus_data - метрики, grafana_data - настройки Grafana.
   postgres_data:
   prometheus_data:
   grafana_data:

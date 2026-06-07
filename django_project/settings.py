@@ -13,25 +13,26 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 import os
 from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# Блок определения корневой папки проекта.
+# BASE_DIR используется для построения путей к базе данных, статике и медиафайлам.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
+# Блок базовых параметров безопасности Django.
+# SECRET_KEY подписывает cookie и токены; в промышленной среде его нужно хранить в переменной окружения.
 SECRET_KEY = 'django-insecure-4ju2n@$f9d0c=h)_g0lbb%k9&@rf(xa$d$g$&5ri$uf)*gev^4'
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# DEBUG=True удобен для лабораторного запуска, но раскрывает диагностическую информацию при ошибках.
 DEBUG = True
 
+# Блок доверенных доменов Replit.
+# Домены берутся из REPLIT_DOMAINS, чтобы Django принимал запросы с адресов текущего контейнера.
 ALLOWED_HOSTS = os.environ["REPLIT_DOMAINS"].split(',')
 CSRF_TRUSTED_ORIGINS = [
     "https://" + domain for domain in os.environ["REPLIT_DOMAINS"].split(',')
 ]
 
-# Application definition
-
+# Блок подключенных приложений.
+# Стандартные приложения Django обеспечивают админку, сессии, авторизацию и статику.
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -42,6 +43,8 @@ INSTALLED_APPS = [
     'risk_app',
 ]
 
+# Блок middleware-цепочки.
+# Каждый middleware обрабатывает запрос или ответ: безопасность, сессии, метрики и авторизация.
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -52,13 +55,16 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
 ]
 
-# Only use clickjacking protection in deployments because the Development Web View uses
-# iframes and needs to be a cross origin.
+# Блок защиты от clickjacking для деплоя.
+# В Replit Web View защита отключается в разработке, потому что просмотр использует iframe.
 if ("REPLIT_DEPLOYMENT" in os.environ):
     MIDDLEWARE.append('django.middleware.clickjacking.XFrameOptionsMiddleware')
 
+# Блок корневой маршрутизации.
 ROOT_URLCONF = 'django_project.urls'
 
+# Блок шаблонов.
+# APP_DIRS=True разрешает Django искать HTML-шаблоны внутри risk_app/templates.
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -75,11 +81,12 @@ TEMPLATES = [
     },
 ]
 
+# Блок WSGI-приложения.
+# WSGI используется сервером для запуска Django-приложения внутри контейнера.
 WSGI_APPLICATION = 'django_project.wsgi.application'
 
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
+# Блок базы данных.
+# В текущей конфигурации Django использует SQLite-файл внутри папки проекта.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -87,9 +94,8 @@ DATABASES = {
     }
 }
 
-# Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
-
+# Блок проверки сложности паролей Django.
+# Валидаторы применяются при использовании стандартной системы пользователей Django.
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME':
@@ -109,9 +115,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
-
+# Блок локализации и часового пояса.
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
@@ -120,20 +124,23 @@ USE_I18N = True
 
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
+# Блок статических файлов.
+# STATIC_ROOT нужен для collectstatic при запуске контейнера.
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
-
+# Блок типа первичных ключей моделей.
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Блок медиафайлов.
+# Сюда сохраняются графики img1.jpeg и img2.jpeg, создаваемые в risk_app/views.py.
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Блок приема запросов с любых хостов в учебной среде.
 ALLOWED_HOSTS = ['*']
 
+# Блок работы за reverse proxy.
+# Заголовок X-Forwarded-Proto сообщает Django, что внешний запрос был HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
